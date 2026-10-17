@@ -1,4 +1,4 @@
-﻿const CACHE = 'foulee-v2';
+﻿const CACHE = 'foulee-v5';
 const FILES = ['./', 'index.html', 'style.css', 'plan.js', 'strava.js', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
@@ -11,4 +11,7 @@ self.addEventListener('fetch', e => {
     const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r;
   }).catch(() => caches.match(e.request)));
 });
+
+
+
 

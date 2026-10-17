@@ -93,3 +93,8 @@ details summary{cursor:pointer;font-weight:700}
 .tm-bar{width:100%;max-width:360px;height:12px;border-radius:8px;background:rgba(255,255,255,.3);overflow:hidden}.tm-bar b{display:block;height:100%;background:#fff}
 .tm-ctl{display:flex;gap:16px;margin:10px 0}.tm-ctl button{font-size:30px;padding:14px 24px}
 .tm-opts{display:flex;gap:10px;align-items:center;justify-content:center}.tm-opts button{font-size:15px;padding:10px 14px}
+
+.opts{display:flex;gap:10px;margin:0 0 12px}
+.opt{flex:1;border:2px solid var(--line);border-radius:18px;padding:10px 8px;text-align:center;cursor:pointer;background:var(--bg);display:flex;flex-direction:column;gap:2px}
+.opt .e{font-size:26px}.opt b{font-size:14px;line-height:1.2}.opt small{color:var(--mute);font-weight:700}
+.opt.on{border-color:var(--coral);background:rgba(255,107,91,.12)}
