@@ -115,7 +115,7 @@
   }
 
   /* ---------- Jeu : XP, niveaux, badges ---------- */
-  const QUAL = ['tempo', 'interval', 'racepace', 'fartlek', 'pyramide', 'hills'];
+  const QUAL = ['tempo', 'interval', 'racepace', 'fartlek', 'pyramide', 'hills', 'thirty', 'ladder', 'tblocks', 'allure'];
   const TITLES = ['Petite foulée', 'Trotteuse', 'Gazelle', 'Lièvre', 'Renarde', 'Guépard', 'Fusée', 'Légende'];
   function stats() {
     const ses = allSessions().filter(s => isDone(s.id)).map(s => ({ ...s, dn: S.done[s.id] })).concat(S.bonus.map(b => ({ ...b, dn: b.done })));
@@ -316,33 +316,55 @@
     if (late.length) h += `<h2>À rattraper (si tu veux)</h2>` + late.map(s => sessLine(s, today)).join('');
     return h;
   }
-  /* Séance bonus : proposition spontanée selon la charge récente et la séance de demain */
+  /* Séance bonus : proposition spontanée, par durée ou par distance, selon la fatigue et la séance de demain */
+  const BONUS_TIMES = [20, 30, 45, 60, 75, 90], BONUS_KMS = [3, 5, 8, 10, 12, 15];
   function genBonus() {
     const b = ui.bonus, i = S.plan.info, today = iso(new Date()), yest = iso(addDays(new Date(), -1)), tmr = iso(addDays(new Date(), 1));
-    const z = { easy: i.easy, long: i.easy * 1.04, tempo: i.p5 * 1.08, interval: i.p5 * 0.99, goal: i.goalPace };
+    const z = { easy: i.easy, long: i.easy * 1.04, tempo: i.p5 * 1.08, interval: i.p5 * 0.99, goal: i.goalPace, p5: i.p5 };
     const hard = s => QUAL.includes(s.type) || s.type === 'long' || s.type === 'race';
     const nxt = allSessions().find(s => s.date === tmr && !isDone(s.id));
     const hardTomorrow = !!nxt && hard(nxt);
     const hardRecent = allSessions().some(s => (s.date === today || s.date === yest) && isDone(s.id) && hard(s))
       || S.bonus.some(x => (x.date === today || x.date === yest) && (QUAL.includes(x.type) || x.type === 'long'));
-    const m = b.mins;
-    let pool = hardTomorrow || hardRecent ? ['easy', 'strides', 'cross'] : ['easy', 'strides', 'cross', 'fartlek', 'hills', 'pyramide', 'tempo'];
-    pool = pool.filter(t => !(['fartlek', 'hills', 'pyramide'].includes(t) && m < 25) && !(t === 'tempo' && m < 40));
-    const cand = pool.filter(t => !b.prop || t !== b.prop.type);
-    const type = cand[Math.random() * cand.length | 0];
-    const km = P.r05(m * 60 / i.easy);
-    const s = P.buildSession(type, Math.max(2, km), z, { p: .5, beginner: i.level === 'debut', km0: km });
-    if (type === 'cross') s.mins = m;
+    // durée (min) et distance (km) cibles selon le mode choisi
+    const byDist = b.mode === 'dist';
+    const km = byDist ? b.km : P.r05(b.mins * 60 / i.easy), m = byDist ? Math.round(b.km * i.easy / 60) : b.mins;
+    const race = S.profile.goal.type === 'race';
+    // catalogue : [type, conditions]
+    const all = [
+      ['easy', 1], ['feel', 1], ['recup', m <= 45], ['strides', m <= 60], ['cross', 1], ['walkrun', m <= 45 && (i.level === 'debut' || m <= 30)],
+      ['steady', m >= 25], ['progressif', m >= 30], ['fartlekfree', m >= 25],
+      ['allure', km >= 3 && m <= 80],
+      ['fartlek', m >= 25], ['thirty', m >= 25 && m <= 50], ['pyramide', m >= 25], ['hills', m >= 25], ['ladder', m >= 35],
+      ['tempo', m >= 40 && km >= 6], ['tblocks', m >= 50 && km >= 8], ['interval', m >= 40 && km >= 6], ['racepace', race && m >= 40 && km >= 6],
+      ['long', m >= 70 && km >= 11]
+    ];
+    const gentle = ['easy', 'feel', 'recup', 'strides', 'cross', 'walkrun', 'steady', 'progressif', 'fartlekfree'];
+    let pool = all.filter(x => x[1]).map(x => x[0]);
+    if (hardTomorrow || hardRecent) pool = pool.filter(t => ['easy', 'feel', 'recup', 'strides', 'cross', 'walkrun'].includes(t));
+    // variété : on évite ce qui vient d'être proposé ou fait
+    const recent = [...(b.hist || []).slice(-4), ...S.bonus.slice(-3).map(x => x.type)];
+    let cand = pool.filter(t => !recent.includes(t));
+    if (!cand.length) cand = pool;
+    // les séances simples reviennent un peu plus souvent que les séances techniques
+    const weighted = cand.flatMap(t => gentle.includes(t) || t === 'allure' ? [t, t] : [t]);
+    const type = weighted[Math.random() * weighted.length | 0];
+    const s = P.buildSession(type, Math.max(2, km), z, { p: Math.random(), beginner: i.level === 'debut', km0: km });
+    if (type === 'cross') s.mins = Math.max(20, m);
     s.id = 'b' + Date.now(); s.date = today; s.bonus = true;
-    b.prop = s;
+    b.prop = s; b.hist = [...(b.hist || []), type].slice(-6);
     b.why = hardTomorrow ? 'Demain, c\'est une grosse séance : je te propose quelque chose de cool pour garder les jambes fraîches.'
       : hardRecent ? 'Tu as déjà fait une séance costaude récemment : on reste sur du léger.' : '';
   }
   function bonusView() {
-    const b = ui.bonus, s = b.prop;
+    const b = ui.bonus, s = b.prop, byDist = b.mode === 'dist';
+    const chips = byDist
+      ? BONUS_KMS.map(k => `<span class="chip ${b.km === k ? 'on' : ''}" data-a="bkm" data-v="${k}">${k} km</span>`).join('')
+      : BONUS_TIMES.map(m => `<span class="chip ${b.mins === m ? 'on' : ''}" data-a="bmins" data-v="${m}">${m} min</span>`).join('');
     return `<h2 style="margin-top:0">⚡ Séance bonus</h2><p class="mute">Une envie de courir ? Voilà une idée, rien d'obligatoire 😉</p>
-      <p class="mute" style="margin-bottom:0">Combien de temps ?</p>
-      <div class="chips">${[20, 30, 45, 60].map(m => `<span class="chip ${b.mins === m ? 'on' : ''}" data-a="bmins" data-v="${m}">${m} min</span>`).join('')}</div>
+      <div class="chips"><span class="chip ${byDist ? '' : 'on'}" data-a="bmode" data-v="time">⏱️ Par durée</span><span class="chip ${byDist ? 'on' : ''}" data-a="bmode" data-v="dist">📏 Par distance</span></div>
+      <div class="chips">${chips}</div>
+      <div class="row"><input type="text" inputmode="decimal" id="bcustom" placeholder="${byDist ? 'Autre distance (km)' : 'Autre durée (min)'}"><button class="btn alt small" data-a="bcustom" style="flex:0">OK</button></div>
       ${b.why ? `<div class="note">${esc(b.why)}</div>` : ''}
       <div class="card" style="margin-top:6px"><div class="row"><span style="flex:0;font-size:44px">${s.emoji}</span><h3 style="margin:0">${s.title}</h3></div>
         <div class="kv">${s.km ? `<span>📏 ${km1(s.km)} km</span>` : ''}<span>⏱️ ~${s.mins} min</span>${s.pace ? `<span>🎚️ ${fmtPace(s.pace)}/km</span>` : ''}</div>
@@ -463,7 +485,10 @@
       <button class="btn ghost" data-a="closesheet">Annuler</button></div></div>`;
     if (sh.kind === 'perf') return `<div class="sheet-bg" data-a="closesheet"><div class="sheet" data-stop><h2 style="margin-top:0">⏱️ Performance récente</h2>
       <p class="mute">Une course, un test ou une sortie où tu as vraiment donné tout (le plus récent possible).</p>
-      <div class="chips">${[3, 5, 10, 21.1, 42.2].map(d => `<span class="chip ${sh.dist === d ? 'on' : ''}" data-a="pdist" data-v="${d}">${raceLabel(d)}</span>`).join('')}</div>
+      <span class="mute">Distance exacte (km)</span>
+      <input type="text" inputmode="decimal" id="pd" placeholder="ex. 7,5" value="${sh.dist || ''}">
+      <div class="chips"><span class="mute" style="align-self:center">Raccourcis :</span>${[5, 10, 21.1, 42.2].map(d => `<span class="chip" data-a="pdist" data-v="${d}">${raceLabel(d)}</span>`).join('')}</div>
+      <span class="mute">Temps</span>
       <div class="row"><input type="number" inputmode="numeric" id="ph" placeholder="h" min="0"><input type="number" inputmode="numeric" id="pm" placeholder="min" min="0"><input type="number" inputmode="numeric" id="ps" placeholder="s" min="0"></div>
       <button class="btn" data-a="perfsave">Recaler mon niveau</button><button class="btn ghost" data-a="closesheet">Annuler</button></div></div>`;
     if (sh.kind === 'bonus') return `<div class="sheet-bg" data-a="closesheet"><div class="sheet" data-stop>${bonusView()}</div></div>`;
@@ -754,12 +779,14 @@
         break;
       }
       case 'unpause': S.pause = null; replan(); toast('Contente de te savoir en forme ! 💪'); break;
-      case 'perf': ui.sheet = { kind: 'perf', dist: 5 }; break;
-      case 'pdist': ui.sheet.dist = +v; break;
+      case 'perf': ui.sheet = { kind: 'perf', dist: '' }; break;
+      case 'pdist': $('#pd').value = v; return; // raccourci : remplit le champ sans effacer le reste
       case 'perfsave': {
+        const dist = parseFloat(($('#pd').value || '').replace(',', '.'));
         const sec = (+$('#ph').value || 0) * 3600 + (+$('#pm').value || 0) * 60 + (+$('#ps').value || 0);
-        if (sec < 300) { toast('Entre un temps valide ⏱️'); return; }
-        setFit(ui.sheet.dist, sec, 'test'); ui.sheet = null; replan();
+        if (!(dist >= 1 && dist <= 100)) { toast('Entre une distance entre 1 et 100 km 📏'); return; }
+        if (sec < 120) { toast('Entre un temps valide ⏱️'); return; }
+        setFit(dist, sec, 'test'); ui.sheet = null; replan();
         toast(`Niveau recalé : ton 5 km est estimé à ${fmtTime(S.plan.info.pred[5])} 🎯`);
         break;
       }
@@ -767,8 +794,16 @@
       case 'retskip': S.retSkip = iso(addDays(new Date(), 10)); break;
       case 'rpace': S.recap.pacing = v; break;
       case 'sugg': { const t = +v; ui.D.th = Math.floor(t / 3600) || ''; ui.D.tm = Math.round(t % 3600 / 60); break; }
-      case 'bonus': ui.bonus = { mins: 30, prop: null, why: '' }; genBonus(); ui.sheet = { kind: 'bonus' }; break;
+      case 'bonus': ui.bonus = { mode: 'time', mins: 30, km: 5, prop: null, why: '', hist: [] }; genBonus(); ui.sheet = { kind: 'bonus' }; break;
       case 'bmins': ui.bonus.mins = +v; genBonus(); break;
+      case 'bkm': ui.bonus.km = +v; genBonus(); break;
+      case 'bmode': ui.bonus.mode = v; genBonus(); break;
+      case 'bcustom': {
+        const x = parseFloat(($('#bcustom').value || '').replace(',', '.'));
+        if (ui.bonus.mode === 'dist') { if (!(x >= 1 && x <= 42)) { toast('Entre une distance entre 1 et 42 km 📏'); return; } ui.bonus.km = Math.round(x * 10) / 10; }
+        else { if (!(x >= 10 && x <= 180)) { toast('Entre une durée entre 10 et 180 min ⏱️'); return; } ui.bonus.mins = Math.round(x); }
+        genBonus(); break;
+      }
       case 'bnew': genBonus(); break;
       case 'btimer': { const p = ui.bonus.prop; ui.sheet = null; openTimer(p.id); break; }
       case 'blog': ui.sheet = { kind: 'log', id: ui.bonus.prop.id, feel: 2 }; break;

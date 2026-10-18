@@ -12,7 +12,7 @@ Application web (PWA) 100 % statique : aucune installation, aucun serveur, les d
 - **Performance récente** : un chrono de course ou de test recale tout le niveau (« Moi → Mon niveau »).
 - **Pas en forme / malade / blessée** : le plan est allégé puis la reprise est progressive.
 - **Jour J** : stratégie de course chronométrée (départ prudent, croisière, finish), bilan, recalibrage du niveau d'après le chrono réel, semaines de récupération automatiques puis nouveau plan avec objectif suggéré.
-- **Séance bonus** : un bouton sur l'écran d'accueil propose une séance spontanée (20 à 60 min), adaptée à la fatigue récente et à la séance du lendemain ; relançable, guidée, et comptée dans les points et badges.
+- **Séance bonus** : un bouton sur l'écran d'accueil propose une séance spontanée, **par durée (20 à 90 min) ou par distance (3 à 15 km, ou valeur libre)**. Une vingtaine de styles (footing au ressenti, découverte, endurance active, « X km à allure », progressif, fartlek libre, 30/30, pyramide, échelle, côtes, lignes droites, seuil en blocs, fractionné, course/marche, récup, cross-training, sortie longue…), adaptés à la fatigue récente et à la séance du lendemain ; relançable (sans répétitions), guidée, et comptée dans les points et badges.
 - **Décaler une séance** : à un autre jour (ou au « meilleur jour » selon la météo) ; le choix est conservé quand le plan se réadapte.
 - **Météo** (Open-Meteo, sans clé) : conseils chaleur / pluie / vent / gel, ralentissement conseillé et meilleur créneau horaire. Ville ou position à renseigner dans l'onglet Moi.
 - **Séance guidée** : minuteur par étapes (échauffement, rapide, récup…), bips et voix, métronome de cadence réglable, écran maintenu allumé.

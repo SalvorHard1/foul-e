@@ -113,6 +113,60 @@
         o.desc = `2 km d'échauffement, ${km1(work)} km à ton allure objectif ${fmtPace(z.goal)}/km, 1,5 km de retour au calme.`;
         break;
       }
+      case 'steady': {
+        const p = z.easy * 0.95; o.title = 'Endurance active'; o.emoji = '🏃‍♀️'; o.pace = p; o.mins = mins(p);
+        o.desc = `Allure régulière, un cran au-dessus du footing : ${fmtPace(p)}/km. Tu respires plus fort mais tu peux encore dire quelques mots.`;
+        break;
+      }
+      case 'allure': {
+        const k = o.km, p5 = z.p5 || z.tempo / 1.08;
+        const p = k <= 3 ? p5 * 0.99 : k <= 5.5 ? p5 * 1.03 : k <= 10.5 ? p5 * 1.07 : p5 * 1.15;
+        ctx.ap = p; o.title = `${km1(k)} km à allure`; o.emoji = '🎯'; o.pace = p; o.mins = Math.round((z.easy + (k - 1) * p) / 60);
+        o.desc = `1 km d'échauffement tranquille, puis ${km1(k - 1)} km à ${fmtPace(p)}/km : effort soutenu mais régulier. Le grand classique, simple et efficace !`;
+        break;
+      }
+      case 'progressif': {
+        const e = z.easy; o.title = 'Footing progressif'; o.emoji = '📈'; o.pace = e * 0.95; o.mins = Math.round(o.km * e * 0.95 / 60);
+        o.desc = `Tu pars tranquille (${fmtPace(e)}/km), tu accélères un peu après le premier tiers (${fmtPace(e * 0.95)}/km) et tu finis plus vite sur le dernier tiers (${fmtPace(e * 0.9)}/km).`;
+        break;
+      }
+      case 'thirty': {
+        const dur = o.km * z.easy / 60, n = clamp(Math.floor(dur - 15), 8, 20);
+        ctx.n = n; o.title = '30/30'; o.emoji = '⏱️'; o.pace = z.interval; o.mins = Math.round(dur);
+        o.desc = `10' d'échauffement, puis ${n} × (30" rapide / 30" de trot), puis 5' de retour au calme. Court, nerveux et ludique.`;
+        break;
+      }
+      case 'ladder':
+        o.title = 'Échelle'; o.emoji = '🪜'; o.pace = z.tempo; o.mins = mins(z.easy * 0.95);
+        o.desc = "10' d'échauffement, puis 2' - 3' - 4' - 3' - 2' à allure soutenue (effort seuil) avec 1'30 de trot entre chaque, puis 5' de retour au calme.";
+        break;
+      case 'tblocks': {
+        const dur = o.km * z.easy / 60, n = clamp(Math.floor((dur - 15) / 10), 2, 4);
+        ctx.n = n; o.title = 'Seuil en blocs'; o.emoji = '🔥'; o.pace = z.tempo; o.mins = Math.round(dur);
+        o.desc = `10' d'échauffement, ${n} × 8' à ${fmtPace(z.tempo)}/km (« confortablement dur ») avec 2' de trot entre les blocs, puis 5' de retour au calme.`;
+        break;
+      }
+      case 'fartlekfree':
+        o.title = 'Fartlek libre'; o.emoji = '🎈'; o.pace = z.easy; o.mins = mins(z.easy);
+        o.desc = `Cours tranquille et accélère quand l'envie te prend (jusqu'au prochain lampadaire, au virage…) pendant 10 à 60 secondes, puis récupère. Zéro pression, tu joues !`;
+        break;
+      case 'feel': {
+        const t = ['Footing au ressenti', 'Footing sans montre', 'Sortie découverte'][Math.random() * 3 | 0];
+        o.title = t; o.emoji = '🌳'; o.pace = null; o.mins = mins(z.easy);
+        o.desc = t === 'Sortie découverte' ? 'Choisis un nouveau parcours, un chemin que tu ne connais pas. Pars tranquille, regarde autour de toi et rentre quand tu en as envie.'
+          : 'Range la montre : cours à la sensation, tu dois pouvoir parler. Aucune pression, juste le plaisir de courir.';
+        break;
+      }
+      case 'walkrun': {
+        const n = clamp(Math.round(o.km * z.easy / 60 / 4), 4, 10);
+        ctx.n = n; o.title = 'Course / marche'; o.emoji = '🚶‍♀️'; o.pace = z.easy; o.mins = n * 4;
+        o.desc = `${n} × (3' de course tranquille / 1' de marche). Parfait pour reprendre ou quand les jambes sont lourdes.`;
+        break;
+      }
+      case 'recup':
+        o.title = 'Footing de récup'; o.emoji = '🧘‍♀️'; o.pace = z.easy * 1.08; o.mins = mins(o.pace);
+        o.desc = `Très lent, à ${fmtPace(o.pace)}/km ou moins. Le but : délier les jambes, pas de faire de la performance.`;
+        break;
       case 'strides':
         o.title = 'Footing + lignes droites'; o.emoji = '🏃'; o.pace = z.easy; o.mins = mins(z.easy);
         o.desc = `Footing facile à ${fmtPace(z.easy)}/km, puis 6 lignes droites de 20 secondes (accélère progressivement, sans sprinter) avec 40 secondes de marche entre chaque. Ça réveille les jambes !`;
@@ -161,6 +215,31 @@
       const { rep, reps, rec } = ctx.iv, st = [T('warm', 'Échauffement', sec(2, z.easy))];
       for (let i = 1; i <= reps; i++) { st.push(T('work', `Rapide ${i}/${reps} · ${rep} m`, sec(rep / 1000, z.interval))); if (i < reps) st.push(T('rest', 'Récupération', rec)); }
       st.push(T('cool', 'Retour au calme', sec(1.5, z.easy))); return st;
+    }
+    if (type === 'thirty') {
+      const n = ctx.n || 12, st = [T('warm', 'Échauffement', 600)];
+      for (let i = 1; i <= n; i++) { st.push(T('work', `30" rapide ${i}/${n}`, 30)); if (i < n) st.push(T('rest', 'Trot', 30)); }
+      st.push(T('cool', 'Retour au calme', 300)); return st;
+    }
+    if (type === 'ladder') {
+      const st = [T('warm', 'Échauffement', 600)], r = [120, 180, 240, 180, 120];
+      r.forEach((d, i) => { st.push(T('work', `Rapide ${d / 60} min`, d)); if (i < r.length - 1) st.push(T('rest', 'Trot', 90)); });
+      st.push(T('cool', 'Retour au calme', 300)); return st;
+    }
+    if (type === 'tblocks') {
+      const n = ctx.n || 3, st = [T('warm', 'Échauffement', 600)];
+      for (let i = 1; i <= n; i++) { st.push(T('work', `Bloc ${i}/${n} · 8 min`, 480)); if (i < n) st.push(T('rest', 'Trot', 120)); }
+      st.push(T('cool', 'Retour au calme', 300)); return st;
+    }
+    if (type === 'allure') return [T('warm', 'Premier km tranquille', z.easy), T('work', `${km1(o.km - 1)} km à allure`, (o.km - 1) * ctx.ap)];
+    if (type === 'progressif') {
+      const e = z.easy, k = o.km / 3;
+      return [T('run', 'Départ tranquille', k * e), T('run', 'On accélère un peu', k * e * 0.95), T('work', 'Finis plus vite !', k * e * 0.9)];
+    }
+    if (type === 'walkrun') {
+      const n = ctx.n || 6, st = [];
+      for (let i = 1; i <= n; i++) { st.push(T('run', `Course 3 min · ${i}/${n}`, 180)); if (i < n) st.push(T('rest', 'Marche 1 min', 60)); }
+      return st;
     }
     if (type === 'strides') {
       const st = [T('run', 'Footing facile', Math.max(300, (o.mins - 6) * 60))];
@@ -224,7 +303,7 @@
     const p5 = a.p5 * (adj.pace || 1); // adj.pace > 1 = on ralentit les allures
     const predicted = race ? predict(p5, race.dist) : null;
     const goalPace = race ? (race.target ? race.target / race.dist : predicted / race.dist) : p5 * 1.06;
-    const z = { easy: a.easy * (adj.pace || 1), tempo: p5 * 1.08, interval: p5 * 0.99, goal: goalPace };
+    const z = { easy: a.easy * (adj.pace || 1), tempo: p5 * 1.08, interval: p5 * 0.99, goal: goalPace, p5 };
     // récupération après une course précédente
     let rec = 0;
     if (profile.post) {
