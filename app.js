@@ -6,7 +6,7 @@
   const app = $('#app');
 
   /* ---------- État ---------- */
-  const fresh = () => ({ v: 1, name: '', runs: [], profile: null, plan: null, done: {}, seen: [], note: '', moves: {}, pick: {}, bonus: [], fit: null, pf: 1, pause: null, fitHist: [], retSkip: '', altv: 0, geo: null, wx: null, recap: null, base: null, lastBackup: 0 });
+  const fresh = () => ({ v: 1, name: '', runs: [], profile: null, plan: null, done: {}, seen: [], note: '', moves: {}, pick: {}, bonus: [], fit: null, races: [], racesv: 0, pf: 1, pause: null, fitHist: [], retSkip: '', altv: 0, geo: null, wx: null, recap: null, base: null, lastBackup: 0 });
   let S;
   try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { S = fresh(); }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } };
@@ -16,6 +16,7 @@
   function allRuns() { // courses Strava + séances saisies à la main
     const out = stravaRuns(); const dates = new Set(out.map(r => r.date));
     Object.entries(S.done).forEach(([id, d]) => { const dt = dateOf(id); if (!d.skipped && d.km > 0 && d.sec > 0 && !dates.has(dt)) out.push({ date: dt, km: d.km, sec: d.sec }); });
+    S.races.forEach(r => { if (!out.some(o => o.date === r.date)) out.push({ date: r.date, km: r.dist, sec: r.sec }); });
     S.bonus.forEach(b => { if (b.done.km > 0 && b.done.sec > 0 && !dates.has(b.date)) out.push({ date: b.date, km: b.done.km, sec: b.done.sec }); });
     return out;
   }
@@ -100,9 +101,41 @@
     if (S.fitHist.length > 90) S.fitHist.shift();
   }
   /* Une performance récente (course, test) recalibre tout le niveau */
-  function setFit(dist, sec, src, date) {
-    S.fit = { p5: sec * Math.pow(5 / dist, dist >= 40 ? 1.07 : 1.06) / 5, date: date || iso(new Date()), src };
+  /* Historique des courses : la plus récente sert de référence de niveau, et le plan s'ajuste à la suite */
+  const sortRaces = () => S.races.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  function refit() {
+    const t = iso(new Date()), r = sortRaces().find(x => x.date <= t && x.sec >= 120);
+    S.fit = r ? { p5: r.sec * Math.pow(5 / r.dist, r.dist >= 40 ? 1.07 : 1.06) / 5, date: r.date, src: r.kind } : null;
     S.pf = 1;
+  }
+  /* Une course récente (< 4 semaines) déclenche des semaines de récupération au début du plan */
+  function syncRaces() {
+    refit();
+    const limit = iso(addDays(new Date(), -28));
+    const rc = S.races.find(r => r.kind === 'course' && r.dist >= 5 && r.date >= limit);
+    S.profile.post = rc ? { dist: rc.dist, date: rc.date } : null;
+  }
+  const raceLbl = r => (r.name ? r.name : raceLabel(r.dist));
+  /* Enregistre / modifie une course puis ajuste l'entraînement à la suite */
+  function saveRace(entry) {
+    const old = S.races.find(r => r.id === entry.id);
+    if (old) Object.assign(old, entry); else S.races.push(entry);
+    // la séance prévue ce jour-là est considérée comme faite
+    if (entry.src !== 'plan') {
+      const sess = allSessions().find(s => s.date === entry.date && !isDone(s.id));
+      if (sess) S.done[sess.id] = { km: entry.dist, sec: entry.sec, feel: 2, auto: true };
+    }
+    // course du plan modifiée : on met aussi à jour le bilan
+    if (old && old.src === 'plan' && S.recap && S.recap.date === old.date) {
+      S.recap.sec = entry.sec;
+      S.recap.newPred = [5, 10, 21.1, 42.2].map(x => [x, P.predict(entry.sec * Math.pow(5 / entry.dist, entry.dist >= 40 ? 1.07 : 1.06) / 5, x)]);
+      if (S.done[old.date]) S.done[old.date].sec = entry.sec;
+    }
+    syncRaces(); replan();
+  }
+  function deleteRace(id) {
+    S.races = S.races.filter(r => r.id !== id);
+    syncRaces(); replan();
   }
   function autoMatch() { // marque les séances faites d'après Strava
     let n = 0; const t = iso(new Date());
@@ -460,9 +493,10 @@
     return `<h1>Moi</h1><div class="card"><h3>${esc(S.name)}</h3><p class="mute">${S.runs.length ? S.runs.length + ' courses Strava importées' : 'Pas de données Strava'}</p></div>
       <div class="card"><h3>Mettre à jour mes données</h3><p class="mute">Réimporte un export Strava récent : je marque tes séances faites et j'ajuste le plan.</p>
         <label class="btn mint" style="text-align:center">📂 Importer un export Strava<input type="file" id="file2" accept=".zip,.csv,text/csv,application/zip" style="display:none"></label></div>
-      <div class="card"><h3>🧪 Mon niveau</h3><p class="mute">Estimation actuelle sur 5 km : <b>${fmtTime(S.plan.info.pred[5])}</b>${S.fit ? ' (calée sur ' + (S.fit.src === 'race' ? 'ta course' : 'ton test') + ' du ' + dFmt(S.fit.date, { day: 'numeric', month: 'short' }) + ')' : ''}.<br>Tu as couru une course ou un test récemment ? Donne-moi le chrono : je recale tout ton plan.</p>
-        <button class="btn alt" data-a="perf">⏱️ Saisir une performance récente</button>
-        <button class="btn alt" data-a="unwell">🤕 Pas en forme / blessée</button></div>
+      <div class="card"><h3>🏅 Mes courses</h3><p class="mute">Ajoute tes courses passées (ou un test où tu as tout donné) : je m'appuie sur la plus récente et j'ajuste ton entraînement à la suite.</p>
+        ${S.races.length ? S.races.map(r => `<div class="sess" data-a="raceedit" data-id="${r.id}"><span class="e">${r.kind === 'test' ? '🧪' : '🏅'}</span><div class="t"><b>${esc(raceLbl(r))}</b><br><span class="mute">${dFmt(r.date, { day: 'numeric', month: 'short', year: 'numeric' })} · ${km1(r.dist)} km · ${fmtHMS(r.sec)} · ${fmtPace(r.sec / r.dist)}/km</span></div><span class="mute">✏️</span></div>`).join('') : '<p class="mute"><i>Aucune course enregistrée pour l\'instant.</i></p>'}
+        <button class="btn alt" data-a="raceadd">➕ Ajouter une course</button></div>
+      <button class="btn alt" data-a="unwell">🤕 Pas en forme / blessée</button>
       <div class="card"><h3>🌦️ Météo</h3><p class="mute">${S.geo ? 'Position : ' + esc(S.geo.name) + '.' : 'Pour des conseils chaleur/pluie et le meilleur créneau de course.'}</p>
         <div class="row"><input type="text" id="city" placeholder="Ma ville"><button class="btn small" data-a="geocity" style="flex:0">OK</button></div>
         <button class="btn alt" data-a="geoloc">📍 Utiliser ma position</button></div>
@@ -483,14 +517,22 @@
         .map(o => `<div class="choice" data-a="setpause" data-v="${o[0]}"><span class="e">${o[1]}</span><div><h3>${o[2]}</h3><span class="mute">${o[3]}</span></div></div>`).join('')}
       <p class="mute">En cas de douleur persistante ou de fièvre, consulte un professionnel de santé.</p>
       <button class="btn ghost" data-a="closesheet">Annuler</button></div></div>`;
-    if (sh.kind === 'perf') return `<div class="sheet-bg" data-a="closesheet"><div class="sheet" data-stop><h2 style="margin-top:0">⏱️ Performance récente</h2>
-      <p class="mute">Une course, un test ou une sortie où tu as vraiment donné tout (le plus récent possible).</p>
+    if (sh.kind === 'race') {
+      const r = sh.id ? S.races.find(x => x.id === sh.id) : null, lock = !!(r && r.src === 'plan'), t = r ? r.sec : 0;
+      return `<div class="sheet-bg" data-a="closesheet"><div class="sheet" data-stop><h2 style="margin-top:0">${r ? '✏️ Modifier la course' : '🏅 Ajouter une course'}</h2>
+      <span class="mute">Nom (facultatif)</span><input type="text" id="rn" placeholder="ex. 10 km de ma ville" value="${r ? esc(r.name || '') : ''}">
+      <span class="mute">Date</span><input type="date" id="rd" max="${iso(new Date())}" value="${r ? r.date : iso(new Date())}" ${lock ? 'disabled' : ''}>
       <span class="mute">Distance exacte (km)</span>
-      <input type="text" inputmode="decimal" id="pd" placeholder="ex. 7,5" value="${sh.dist || ''}">
+      <input type="text" inputmode="decimal" id="pd" placeholder="ex. 7,5" value="${r ? String(r.dist).replace('.', ',') : ''}">
       <div class="chips"><span class="mute" style="align-self:center">Raccourcis :</span>${[5, 10, 21.1, 42.2].map(d => `<span class="chip" data-a="pdist" data-v="${d}">${raceLabel(d)}</span>`).join('')}</div>
       <span class="mute">Temps</span>
-      <div class="row"><input type="number" inputmode="numeric" id="ph" placeholder="h" min="0"><input type="number" inputmode="numeric" id="pm" placeholder="min" min="0"><input type="number" inputmode="numeric" id="ps" placeholder="s" min="0"></div>
-      <button class="btn" data-a="perfsave">Recaler mon niveau</button><button class="btn ghost" data-a="closesheet">Annuler</button></div></div>`;
+      <div class="row"><input type="number" inputmode="numeric" id="ph" placeholder="h" min="0" value="${t ? Math.floor(t / 3600) : ''}"><input type="number" inputmode="numeric" id="pm" placeholder="min" min="0" value="${t ? Math.floor(t % 3600 / 60) : ''}"><input type="number" inputmode="numeric" id="ps" placeholder="s" min="0" value="${t ? t % 60 : ''}"></div>
+      <div class="chips"><span class="chip ${sh.rk === 'test' ? '' : 'on'}" data-a="rkind" data-v="course">🏅 Course</span><span class="chip ${sh.rk === 'test' ? 'on' : ''}" data-a="rkind" data-v="test">🧪 Test / sortie à fond</span></div>
+      <div class="note">Ton niveau est recalé sur la course la plus récente, et ton plan est ajusté <b>à la suite</b>${r ? '' : ' (avec une semaine de récupération si la course date de moins de 4 semaines)'}.</div>
+      <button class="btn" data-a="racesave">Enregistrer</button>
+      ${r ? `<button class="btn alt" data-a="racedel" data-id="${r.id}">🗑️ Supprimer cette course</button>` : ''}
+      <button class="btn ghost" data-a="closesheet">Annuler</button></div></div>`;
+    }
     if (sh.kind === 'bonus') return `<div class="sheet-bg" data-a="closesheet"><div class="sheet" data-stop>${bonusView()}</div></div>`;
     const s = findSess(sh.id);
     if (!s) return '';
@@ -637,14 +679,17 @@
   const fmtHMS = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60, p = n => String(n).padStart(2, '0'); return h ? `${h}h${p(m)}'${p(x)}"` : `${m}'${p(x)}"`; };
   function makeRecap(s, d) {
     const st = stats(), b = S.base || {}, p5 = d.sec > 0 ? d.sec * Math.pow(5 / s.km, s.km >= 40 ? 1.07 : 1.06) / 5 : null;
-    if (d.sec > 0) setFit(s.km, d.sec, 'race', s.date); // le chrono du jour J devient la nouvelle référence de niveau
+    if (d.sec > 0) { // le chrono du jour J entre dans l'historique et devient la référence de niveau
+      S.races = S.races.filter(r => r.id !== 'plan-' + s.date);
+      S.races.push({ id: 'plan-' + s.date, date: s.date, dist: s.km, sec: d.sec, name: 'Jour J', kind: 'course', src: 'plan' });
+      syncRaces();
+    }
     S.recap = {
       date: s.date, dist: s.km, sec: d.sec || 0, feel: d.feel, pred: b.pred || null, target: b.target || null,
       count: st.count, km: Math.round(st.km), weeks: S.plan.weeks.length, pacing: null,
       newPred: p5 ? [5, 10, 21.1, 42.2].map(x => [x, P.predict(p5, x)]) : null
     };
   }
-  const RECOVERY_WEEKS = { 5: 1, 10: 1, 21.1: 2, 42.2: 3 };
   const PACING = { fast: ['🔥', 'Parti trop vite'], ok: ['👌', 'Bien dosé'], slow: ['🐢', 'Trop prudent'] };
   const PACING_TIP = {
     fast: 'Tu es partie trop vite : la prochaine fois, garde 5 à 10 s/km de marge sur le 1er km. Mes séances à allure de course travailleront ça.',
@@ -669,7 +714,7 @@
       <div class="card"><h3>Ton départ, comment c'était ?</h3>
         <div class="chips">${Object.entries(PACING).map(([k, p]) => `<span class="chip ${r.pacing === k ? 'on' : ''}" data-a="rpace" data-v="${k}">${p[0]} ${p[1]}</span>`).join('')}</div>
         ${r.pacing ? `<p>${PACING_TIP[r.pacing]}</p>` : ''}</div>
-      <div class="note">🛁 Après ${raceLabel(r.dist)} : <b>${RECOVERY_WEEKS[r.dist] || 1} semaine${(RECOVERY_WEEKS[r.dist] || 1) > 1 ? 's' : ''} tranquille${(RECOVERY_WEEKS[r.dist] || 1) > 1 ? 's' : ''}</b> avant de reprendre. Ton nouveau plan commencera par là, et ton niveau est recalculé d'après ce chrono.</div>
+      <div class="note">🛁 Après ${raceLabel(r.dist)} : <b>${P.recWeeks(r.dist)} semaine${P.recWeeks(r.dist) > 1 ? 's' : ''} tranquille${P.recWeeks(r.dist) > 1 ? 's' : ''}</b> avant de reprendre. Ton nouveau plan commencera par là, et ton niveau est recalculé d'après ce chrono.</div>
       <button class="btn" data-a="sharerecap">📤 Partager</button>
       <button class="btn alt" data-a="newgoal">🎯 Choisir le prochain objectif</button>
       <button class="btn ghost" data-a="closesheet">Fermer</button>`;
@@ -779,17 +824,24 @@
         break;
       }
       case 'unpause': S.pause = null; replan(); toast('Contente de te savoir en forme ! 💪'); break;
-      case 'perf': ui.sheet = { kind: 'perf', dist: '' }; break;
+      case 'raceadd': ui.sheet = { kind: 'race', id: null, rk: 'course' }; break;
+      case 'raceedit': ui.sheet = { kind: 'race', id, rk: (S.races.find(r => r.id === id) || {}).kind || 'course' }; break;
       case 'pdist': $('#pd').value = v; return; // raccourci : remplit le champ sans effacer le reste
-      case 'perfsave': {
+      case 'rkind': ui.sheet.rk = v; document.querySelectorAll('[data-a=rkind]').forEach(c => c.classList.toggle('on', c.dataset.v === v)); return;
+      case 'racesave': {
+        const old = ui.sheet.id ? S.races.find(r => r.id === ui.sheet.id) : null;
+        const date = old && old.src === 'plan' ? old.date : $('#rd').value;
         const dist = parseFloat(($('#pd').value || '').replace(',', '.'));
         const sec = (+$('#ph').value || 0) * 3600 + (+$('#pm').value || 0) * 60 + (+$('#ps').value || 0);
+        if (!date || date > iso(new Date())) { toast('Choisis la date de ta course (pas dans le futur) 📅'); return; }
         if (!(dist >= 1 && dist <= 100)) { toast('Entre une distance entre 1 et 100 km 📏'); return; }
         if (sec < 120) { toast('Entre un temps valide ⏱️'); return; }
-        setFit(dist, sec, 'test'); ui.sheet = null; replan();
-        toast(`Niveau recalé : ton 5 km est estimé à ${fmtTime(S.plan.info.pred[5])} 🎯`);
+        saveRace({ id: old ? old.id : 'r' + Date.now(), date, dist: Math.round(dist * 100) / 100, sec, name: $('#rn').value.trim(), kind: ui.sheet.rk || 'course', src: old ? old.src : 'manual' });
+        ui.sheet = null; checkBadges();
+        toast(`Course enregistrée, plan ajusté à la suite 🎯 (5 km estimé : ${fmtTime(S.plan.info.pred[5])})`, 4500);
         break;
       }
+      case 'racedel': if (confirm('Supprimer cette course de ton historique ?')) { deleteRace(id); ui.sheet = null; toast('Course supprimée, plan réajusté'); } break;
       case 'retarget': { const sug = Math.round(S.plan.info.predicted / 30) * 30; S.profile.goal.target = sug; S.base.target = sug; replan(); toast('Objectif ajusté à ' + fmtHMS(sug) + ' 🎯'); break; }
       case 'retskip': S.retSkip = iso(addDays(new Date(), 10)); break;
       case 'rpace': S.recap.pacing = v; break;
@@ -845,6 +897,11 @@
   });
 
   if (ui.step !== null) initDraft(ui.step);
+  if (S.plan && !S.racesv) { // anciens plans : reprend le chrono de référence dans l'historique des courses
+    if (S.recap && S.recap.sec) S.races.push({ id: 'plan-' + S.recap.date, date: S.recap.date, dist: S.recap.dist, sec: S.recap.sec, name: 'Jour J', kind: 'course', src: 'plan' });
+    else if (S.fit) S.races.push({ id: 'legacy', date: S.fit.date, dist: 5, sec: Math.round(S.fit.p5 * 5), name: '', kind: S.fit.src === 'race' ? 'course' : 'test', src: 'manual' });
+    S.racesv = 1; save();
+  }
   if (S.plan && S.altv !== 2) { try { replan(); S.altv = 2; save(); } catch (e) { } } // anciens plans : ajoute les options du jour
   render();
   fetchWx();

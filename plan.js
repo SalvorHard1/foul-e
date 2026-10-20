@@ -69,6 +69,8 @@
     return { hasData, level: lvl, weeklyKm, longest, easy, p5, count42: r42.length };
   }
 
+  /* Semaines de récupération conseillées après une course de d km */
+  const recWeeks = d => (d <= 15 ? 1 : d <= 25 ? 2 : 3);
   const predict = (p5, d) => 5 * p5 * Math.pow(d / 5, d >= 40 ? 1.07 : 1.06);
 
   /* ---------- Séances ---------- */
@@ -307,7 +309,7 @@
     // récupération après une course précédente
     let rec = 0;
     if (profile.post) {
-      const need = { 5: 1, 10: 1, 21.1: 2, 42.2: 3 }[profile.post.dist] || 1;
+      const need = recWeeks(profile.post.dist);
       const elapsed = Math.max(0, Math.floor((today - parseISO(profile.post.date)) / (7 * DAY)));
       rec = Math.max(0, need - elapsed);
     }
@@ -507,5 +509,5 @@
     return { vol: clamp(vol, 0.8, 1.15), pace: 1, note: notes.join(' ') };
   }
 
-  G.P = { iso, parseISO, addDays, mondayOf, wdIdx, fmtPace, fmtTime, km1, analyze, predict, generatePlan, computeAdjust, RACES, r05, buildSession };
+  G.P = { iso, parseISO, addDays, mondayOf, wdIdx, fmtPace, fmtTime, km1, analyze, predict, generatePlan, computeAdjust, RACES, r05, buildSession, recWeeks };
 })(window);
