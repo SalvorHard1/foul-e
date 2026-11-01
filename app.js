@@ -6,7 +6,7 @@
   const app = $('#app');
 
   /* ---------- État ---------- */
-  const fresh = () => ({ v: 1, name: '', runs: [], profile: null, plan: null, done: {}, seen: [], note: '', moves: {}, pick: {}, bonus: [], fit: null, races: [], racesv: 0, pf: 1, pause: null, fitHist: [], retSkip: '', altv: 0, geo: null, wx: null, recap: null, base: null, lastBackup: 0 });
+  const fresh = () => ({ v: 1, name: '', runs: [], profile: null, plan: null, done: {}, seen: [], note: '', moves: {}, pick: {}, bonus: [], fit: null, races: [], perso: [], racesv: 0, pf: 1, pause: null, fitHist: [], retSkip: '', altv: 0, geo: null, wx: null, recap: null, base: null, lastBackup: 0 });
   let S;
   try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { S = fresh(); }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } };
@@ -18,6 +18,7 @@
     Object.entries(S.done).forEach(([id, d]) => { const dt = dateOf(id); if (!d.skipped && d.km > 0 && d.sec > 0 && !dates.has(dt)) out.push({ date: dt, km: d.km, sec: d.sec }); });
     S.races.forEach(r => { if (!out.some(o => o.date === r.date)) out.push({ date: r.date, km: r.dist, sec: r.sec }); });
     S.bonus.forEach(b => { if (b.done.km > 0 && b.done.sec > 0 && !dates.has(b.date)) out.push({ date: b.date, km: b.done.km, sec: b.done.sec }); });
+    S.perso.forEach(p => { if (p.km > 0 && p.sec > 0 && !dates.has(p.date)) out.push({ date: p.date, km: p.km, sec: p.sec }); });
     return out;
   }
   /* Séance « effective » : celle choisie parmi les deux options du jour (s.other = l'autre option) */
@@ -116,6 +117,9 @@
     S.profile.post = rc ? { dist: rc.dist, date: rc.date } : null;
   }
   const raceLbl = r => (r.name ? r.name : raceLabel(r.dist));
+  /* Séances perso : sorties hors plan (temps, distance, sensations, observation) */
+  const FEELS = [[1, '😄', 'Facile'], [2, '🙂', 'Bien'], [3, '😮‍💨', 'Dur']];
+  const sortPerso = () => S.perso.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   /* Enregistre / modifie une course puis ajuste l'entraînement à la suite */
   function saveRace(entry) {
     const old = S.races.find(r => r.id === entry.id);
@@ -496,6 +500,9 @@
       <div class="card"><h3>🏅 Mes courses</h3><p class="mute">Ajoute tes courses passées (ou un test où tu as tout donné) : je m'appuie sur la plus récente et j'ajuste ton entraînement à la suite.</p>
         ${S.races.length ? S.races.map(r => `<div class="sess" data-a="raceedit" data-id="${r.id}"><span class="e">${r.kind === 'test' ? '🧪' : '🏅'}</span><div class="t"><b>${esc(raceLbl(r))}</b><br><span class="mute">${dFmt(r.date, { day: 'numeric', month: 'short', year: 'numeric' })} · ${km1(r.dist)} km · ${fmtHMS(r.sec)} · ${fmtPace(r.sec / r.dist)}/km</span></div><span class="mute">✏️</span></div>`).join('') : '<p class="mute"><i>Aucune course enregistrée pour l\'instant.</i></p>'}
         <button class="btn alt" data-a="raceadd">➕ Ajouter une course</button></div>
+      <div class="card"><h3>👟 Mes séances perso</h3><p class="mute">Les sorties que tu fais en dehors du plan : je les prends en compte pour adapter ton entraînement.</p>
+        ${S.perso.length ? sortPerso().map(p => `<div class="sess" data-a="persoedit" data-id="${p.id}"><span class="e">${(FEELS.find(f => f[0] === p.feel) || FEELS[1])[1]}</span><div class="t"><b>${dFmt(p.date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</b><br><span class="mute">${p.km ? km1(p.km) + ' km · ' : ''}${fmtHMS(p.sec)}${p.km ? ' · ' + fmtPace(p.sec / p.km) + '/km' : ''}</span>${p.obs ? `<br><span class="mute"><i>${esc(p.obs)}</i></span>` : ''}</div><span class="mute">✏️</span></div>`).join('') : '<p class="mute"><i>Aucune séance perso pour l\'instant.</i></p>'}
+        <button class="btn alt" data-a="persoadd">➕ Ajouter une séance perso</button></div>
       <button class="btn alt" data-a="unwell">🤕 Pas en forme / blessée</button>
       <div class="card"><h3>🌦️ Météo</h3><p class="mute">${S.geo ? 'Position : ' + esc(S.geo.name) + '.' : 'Pour des conseils chaleur/pluie et le meilleur créneau de course.'}</p>
         <div class="row"><input type="text" id="city" placeholder="Ma ville"><button class="btn small" data-a="geocity" style="flex:0">OK</button></div>
@@ -533,6 +540,20 @@
       ${r ? `<button class="btn alt" data-a="racedel" data-id="${r.id}">🗑️ Supprimer cette course</button>` : ''}
       <button class="btn ghost" data-a="closesheet">Annuler</button></div></div>`;
     }
+    if (sh.kind === 'perso') {
+      const p = sh.id ? S.perso.find(x => x.id === sh.id) : null, t = p ? p.sec : 0;
+      return `<div class="sheet-bg" data-a="closesheet"><div class="sheet" data-stop><h2 style="margin-top:0">${p ? '✏️ Modifier la séance' : '👟 Ajouter une séance perso'}</h2>
+      <span class="mute">Date</span><input type="date" id="xd" max="${iso(new Date())}" value="${p ? p.date : iso(new Date())}">
+      <span class="mute">Distance (km)</span><input type="text" inputmode="decimal" id="xk" placeholder="ex. 6,5" value="${p && p.km ? String(p.km).replace('.', ',') : ''}">
+      <span class="mute">Temps (h · min · s)</span>
+      <div class="row"><input type="number" inputmode="numeric" id="xh" placeholder="h" min="0" value="${t >= 3600 ? Math.floor(t / 3600) : ''}"><input type="number" inputmode="numeric" id="xm" placeholder="min" min="0" value="${t ? Math.floor(t % 3600 / 60) : ''}"><input type="number" inputmode="numeric" id="xs" placeholder="s" min="0" max="59" value="${t ? t % 60 : ''}"></div>
+      <span class="mute">Sensations</span>
+      <div class="feel">${FEELS.map(f => `<button data-a="pfeel" data-v="${f[0]}" class="${sh.feel === f[0] ? 'on' : ''}">${f[1]}<small>${f[2]}</small></button>`).join('')}</div>
+      <span class="mute">Observation (facultatif)</span><textarea id="xo" rows="3" placeholder="ex. jambes lourdes, du vent, super forme…">${p ? esc(p.obs || '') : ''}</textarea>
+      <button class="btn" data-a="persosave">Enregistrer</button>
+      ${p ? `<button class="btn alt" data-a="persodel" data-id="${p.id}">🗑️ Supprimer cette séance</button>` : ''}
+      <button class="btn ghost" data-a="closesheet">Annuler</button></div></div>`;
+    }
     if (sh.kind === 'bonus') return `<div class="sheet-bg" data-a="closesheet"><div class="sheet" data-stop>${bonusView()}</div></div>`;
     const s = findSess(sh.id);
     if (!s) return '';
@@ -551,7 +572,7 @@
       ${(() => { const m0 = sh.min != null ? sh.min : s.mins;
         return s.type === 'race'
           ? `<div><span class="mute">Temps (h · min · s)</span><div class="row"><input type="number" inputmode="numeric" id="lh" value="${Math.floor(m0 / 60)}"><input type="number" inputmode="numeric" id="lm" value="${m0 % 60}"><input type="number" inputmode="numeric" id="ls" value="0"></div></div>`
-          : `<div><span class="mute">Durée (min)</span><input type="number" inputmode="numeric" id="lm" value="${m0}"></div>`; })()}</div>
+          : `<div><span class="mute">Durée (min · s)</span><div class="row"><input type="number" inputmode="numeric" id="lm" placeholder="min" min="0" value="${m0}"><input type="number" inputmode="numeric" id="ls" placeholder="s" min="0" max="59" value="0"></div></div>`; })()}</div>
       <span class="mute">C'était comment ?</span>
       <div class="feel">${[[1, '😄', 'Facile'], [2, '🙂', 'Bien'], [3, '😮‍💨', 'Dur']].map(f => `<button data-a="feel" data-v="${f[0]}" class="${sh.feel === f[0] ? 'on' : ''}">${f[1]}<small>${f[2]}</small></button>`).join('')}</div>
       <p class="mute">Ces infos me servent à adapter la suite de ton plan.</p>
@@ -787,10 +808,10 @@
       case 'open': ui.sheet = { kind: 'detail', id }; break;
       case 'closesheet': ui.sheet = null; break;
       case 'log': ui.sheet = { kind: 'log', id, feel: 2 }; break;
-      case 'feel': ui.sheet.feel = +v; break;
+      case 'feel': ui.sheet.feel = +v; document.querySelectorAll('[data-a=feel]').forEach(b => b.classList.toggle('on', b.dataset.v === v)); return; // sans re-rendu : garde ce qui a été tapé
       case 'savelog': {
         const km = parseFloat($('#lk').value.replace(',', '.')) || 0, min = parseFloat($('#lm').value) || 0;
-        const sec = $('#lh') ? (+$('#lh').value || 0) * 3600 + min * 60 + (+$('#ls').value || 0) : Math.round(min * 60);
+        const sec = ($('#lh') ? (+$('#lh').value || 0) * 3600 : 0) + Math.round(min * 60) + (+$('#ls').value || 0);
         const feel = ui.sheet.feel;
         S.done[id] = { km, sec, feel, at: Date.now() };
         const sess = findSess(id);
@@ -842,6 +863,22 @@
         break;
       }
       case 'racedel': if (confirm('Supprimer cette course de ton historique ?')) { deleteRace(id); ui.sheet = null; toast('Course supprimée, plan réajusté'); } break;
+      case 'persoadd': ui.sheet = { kind: 'perso', id: null, feel: 2 }; break;
+      case 'persoedit': ui.sheet = { kind: 'perso', id, feel: (S.perso.find(p => p.id === id) || {}).feel || 2 }; break;
+      case 'pfeel': ui.sheet.feel = +v; document.querySelectorAll('[data-a=pfeel]').forEach(b => b.classList.toggle('on', b.dataset.v === v)); return;
+      case 'persosave': {
+        const old = ui.sheet.id ? S.perso.find(p => p.id === ui.sheet.id) : null;
+        const date = $('#xd').value, km = parseFloat(($('#xk').value || '').replace(',', '.')) || 0;
+        const sec = (+$('#xh').value || 0) * 3600 + (+$('#xm').value || 0) * 60 + (+$('#xs').value || 0);
+        if (!date || date > iso(new Date())) { toast('Choisis la date de ta séance (pas dans le futur) 📅'); return; }
+        if (km < 0 || km > 100) { toast('Entre une distance entre 0 et 100 km 📏'); return; }
+        if (sec < 60) { toast('Entre un temps valide ⏱️'); return; }
+        const entry = { id: old ? old.id : 'p' + Date.now(), date, km: Math.round(km * 100) / 100, sec, feel: ui.sheet.feel || 2, obs: $('#xo').value.trim() };
+        if (old) Object.assign(old, entry); else S.perso.push(entry);
+        ui.sheet = null; replan(); toast('Séance perso enregistrée 💪');
+        break;
+      }
+      case 'persodel': if (confirm('Supprimer cette séance perso ?')) { S.perso = S.perso.filter(p => p.id !== id); ui.sheet = null; replan(); toast('Séance supprimée'); } break;
       case 'retarget': { const sug = Math.round(S.plan.info.predicted / 30) * 30; S.profile.goal.target = sug; S.base.target = sug; replan(); toast('Objectif ajusté à ' + fmtHMS(sug) + ' 🎯'); break; }
       case 'retskip': S.retSkip = iso(addDays(new Date(), 10)); break;
       case 'rpace': S.recap.pacing = v; break;

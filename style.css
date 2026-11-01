@@ -28,9 +28,9 @@ p{margin:6px 0;line-height:1.45}
 .btn.mint{background:linear-gradient(135deg,var(--mint),#5ad8ff);box-shadow:0 6px 14px rgba(55,201,160,.35)}
 .btn.small{display:inline-block;width:auto;padding:10px 16px;font-size:15px}
 .btn[disabled]{opacity:.45}
-input[type=text],input[type=number],input[type=date]{width:100%;font:inherit;font-size:17px;padding:14px;border-radius:14px;
+input[type=text],input[type=number],input[type=date],textarea{width:100%;font:inherit;font-size:17px;padding:14px;border-radius:14px;
   border:2px solid var(--line);background:var(--card);color:var(--ink);margin:6px 0}
-input:focus{outline:none;border-color:var(--coral)}
+input:focus,textarea:focus{outline:none;border-color:var(--coral)}
 .row{display:flex;gap:10px;align-items:center}
 .row>*{flex:1}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
@@ -98,3 +98,4 @@ details summary{cursor:pointer;font-weight:700}
 .opt{flex:1;border:2px solid var(--line);border-radius:18px;padding:10px 8px;text-align:center;cursor:pointer;background:var(--bg);display:flex;flex-direction:column;gap:2px}
 .opt .e{font-size:26px}.opt b{font-size:14px;line-height:1.2}.opt small{color:var(--mute);font-weight:700}
 .opt.on{border-color:var(--coral);background:rgba(255,107,91,.12)}
+textarea{resize:vertical;display:block}
